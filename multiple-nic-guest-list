@@ -1,0 +1,37 @@
+# Powershell Gallery PowerCLI modullerini yukluyoyuruz
+Import-Module VMware.PowerCLI
+
+#userName değişkeni içerisine login olan kullanıcı adımızı alıyoruz
+$userName = $env:UserName
+
+
+# VCenter sunucuya erisim sagliyoruz
+Connect-VIServer -Server vcenterip
+clear
+
+
+# tek satırda getirmek için
+
+#Get-VM | select Name,@{N="NIC COUNT";E={($_ | Get-NetworkAdapter).count}}
+
+
+
+foreach($vm in Get-VM ){
+
+$network = $vm | Get-NetworkAdapter
+$networkcount = $network.count
+
+#1 den fazla network kartı olan sanal sunuucları listeler.
+    if($networkcount -gt 1){
+
+
+    $vm.Name
+    $networkcount
+
+    }
+
+}
+
+Disconnect-VIServer -Server * -Force -Confirm:$false
+
+
