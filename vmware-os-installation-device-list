@@ -1,0 +1,33 @@
+#Importing Powershell Gallery PowerCLI Module
+Import-Module -Name VMware.PowerCLI
+
+# Connecting Vcenter Server
+Connect-VIServer -Server vcenter
+
+
+foreach( $xHost in (Get-VMHost)){
+
+# Vmware Host Name
+"Vmware Hostname : " + $xHost.Name
+" "
+# Finding Vmware OS Partition Disk Id
+$disIdentifier = ($xHost | Get-VMHostDiagnosticPartition).ExtensionData.Id.DiskName
+
+# Merge Partion ID and Get Device details
+$xHost.ExtensionData.Config.StorageDevice.ScsiLun | where  CanonicalName -EQ $disIdentifier | select DisplayName,Model,DeviceName,Vendor,DevicePath
+
+"------------------"
+
+
+} 
+
+
+#Disconnet All vcenter or hosts
+Disconnect-VIServer -Server * -Force -Confirm:$false
+
+
+
+
+
+
+
