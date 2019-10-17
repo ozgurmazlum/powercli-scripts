@@ -1,3 +1,5 @@
+#This Script find and get vmware operations system disk details
+
 #Importing Powershell Gallery PowerCLI Module
 Import-Module -Name VMware.PowerCLI
 
@@ -11,10 +13,10 @@ foreach( $xHost in (Get-VMHost)){
 "Vmware Hostname : " + $xHost.Name
 " "
 # Finding Vmware OS Partition Disk Id
-$disIdentifier = ($xHost | Get-VMHostDiagnosticPartition).ExtensionData.Id.DiskName
+$diskIdentifier = ($xHost | Get-VMHostDiagnosticPartition).ExtensionData.Id.DiskName
 
 # Merge Partion ID and Get Device details
-$xHost.ExtensionData.Config.StorageDevice.ScsiLun | where  CanonicalName -EQ $disIdentifier | select DisplayName,Model,DeviceName,Vendor,DevicePath
+$xHost.ExtensionData.Config.StorageDevice.ScsiLun | where  CanonicalName -EQ $diskIdentifier | select DisplayName,Model,DeviceName,Vendor,DevicePath
 
 "------------------"
 
