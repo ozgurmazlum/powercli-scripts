@@ -107,5 +107,4 @@ Write-Host
 
 }
 
-
 Disconnect-VIServer -Server * -Force -Confirm:$false
