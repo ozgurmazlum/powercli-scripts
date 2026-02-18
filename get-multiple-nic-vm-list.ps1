@@ -38,17 +38,26 @@ catch {
 try {
     Write-Verbose "Scanning VMs for multiple NICs..."
 
-    # Process VMs. Using a pipeline reduces memory usage compared to storing all in a variable first.
-    Get-VM | ForEach-Object {
+    # Process VMs. Using Get-View for performance.
+    # We retrieve only the Name and the hardware configuration, which contains device info.
+    Get-View -ViewType VirtualMachine -Property Name, Config.Hardware.Device | ForEach-Object {
         $vm = $_
-        # Get-NetworkAdapter can be slow per VM, but it is accurate.
-        $adapters = $vm | Get-NetworkAdapter
-        $nicCount = $adapters.Count
 
-        if ($nicCount -gt 1) {
-            [PSCustomObject]@{
-                VMName   = $vm.Name
-                NicCount = $nicCount
+        # Check if Config and Hardware properties are available
+        if ($vm.Config -and $vm.Config.Hardware) {
+            # Filter for network adapters in the hardware devices
+            # Network adapters typically inherit from VirtualEthernetCard
+            $adapters = @($vm.Config.Hardware.Device | Where-Object {
+                $_.PSTypeNames -contains "VMware.Vim.VirtualEthernetCard"
+            })
+
+            $nicCount = $adapters.Count
+
+            if ($nicCount -gt 1) {
+                [PSCustomObject]@{
+                    VMName   = $vm.Name
+                    NicCount = $nicCount
+                }
             }
         }
     }
