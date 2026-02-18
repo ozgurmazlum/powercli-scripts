@@ -1,24 +1,44 @@
-Import-Module VMware.PowerCLI 
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory=$false)]
+    [string]$VCenterServer = "vcenter.local",
 
-$vcenter = "vcenter.local"
-$user = "root"
-$pass = "vmware"
+    [Parameter(Mandatory=$false)]
+    [string]$User = "root",
 
-Connect-VIServer -Server $vcenter -User $user -Password $pass
+    [Parameter(Mandatory=$false)]
+    [string]$Password = "vmware"
+)
 
+Import-Module VMware.PowerCLI -ErrorAction SilentlyContinue
 
-$resulth = @()
+try {
+    # Connect to vCenter
+    $server = Connect-VIServer -Server $VCenterServer -User $User -Password $Password -ErrorAction Stop
 
+    $datastores = Get-Datastore
 
-$datastores = Get-Datastore
+    # Optimized loop:
+    # 1. Use direct variable assignment instead of += (array resizing is slow)
+    # 2. Use .ExtensionData.Vm.Count instead of Get-VM (avoids N+1 API calls)
+    $resulth = foreach ($datastore in $datastores) {
+        $vmCount = if ($datastore.ExtensionData.Vm) { $datastore.ExtensionData.Vm.Count } else { 0 }
 
-foreach ($datastore in $datastores) {
-   
-    $resulth += $datastore | Select-Object Name,@{N="VMCOUNT";E={($_ | Get-VM).count}},@{N="FREESPACE";E={$_.FreeSpaceGB}}
+        [PSCustomObject]@{
+            Name      = $datastore.Name
+            VMCOUNT   = $vmCount
+            FREESPACE = $datastore.FreeSpaceGB
+        }
+    }
+
+    $resulth | Sort-Object -Property VMCOUNT -Descending | Format-Table -AutoSize
 }
-
-
-$resulth | sort-object -Property VMCOUNT -Descending | Format-Table -AutoSize
-
-
-Disconnect-VIServer -Server $vcenter -Confirm:$false
+catch {
+    Write-Error "An error occurred: $_"
+}
+finally {
+    # Disconnect from vCenter
+    if ($server) {
+        Disconnect-VIServer -Server $server -Confirm:$false
+    }
+}
