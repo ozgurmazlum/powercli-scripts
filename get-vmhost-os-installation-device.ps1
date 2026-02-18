@@ -39,25 +39,25 @@ catch {
 try {
     Write-Verbose "Retrieving host storage details..."
 
-    Get-VMHost | ForEach-Object {
+    # Use Get-View to batch fetch only necessary properties, avoiding N+1 queries.
+    Get-View -ViewType HostSystem -Property Name, Config.DiagnosticPartition, Config.StorageDevice.ScsiLun | ForEach-Object {
         $xHost = $_
 
         # Get diagnostic partition to identify the OS disk
         # Note: This assumes the diagnostic partition is on the OS disk.
-        $diagPartition = $xHost | Get-VMHostDiagnosticPartition
-        # Handle cases where multiple partitions might return, though usually one active logic applies.
-        # Taking the first disk name found if multiple.
-        if ($diagPartition -is [array]) {
-            $diskIdentifier = $diagPartition[0].ExtensionData.Id.DiskName
-        } elseif ($diagPartition) {
-            $diskIdentifier = $diagPartition.ExtensionData.Id.DiskName
+        # Accessing property directly from the View object (Config.DiagnosticPartition)
+        $diagPartition = $xHost.Config.DiagnosticPartition
+
+        if ($diagPartition) {
+            # HostDiagnosticPartition usually has a single active partition reference
+            $diskIdentifier = $diagPartition.Id.DiskName
         } else {
             $diskIdentifier = $null
         }
 
         if ($diskIdentifier) {
             # Find the ScsiLun matching the disk identifier
-            $lun = $xHost.ExtensionData.Config.StorageDevice.ScsiLun | Where-Object { $_.CanonicalName -eq $diskIdentifier }
+            $lun = $xHost.Config.StorageDevice.ScsiLun | Where-Object { $_.CanonicalName -eq $diskIdentifier }
 
             if ($lun) {
                 [PSCustomObject]@{
