@@ -1,100 +1,92 @@
-PowerShell
-Import-Module -Name VMware.PowerCLI
+<#
+.SYNOPSIS
+    Deploys a new virtual machine from a template.
 
-Connect-VIServer -Server vcenteripaddress
+.DESCRIPTION
+    Connects to vCenter and deploys a new VM using the specified template, cluster, and datastore.
 
-$localUser = $env:USERNAME
+.PARAMETER VCenterServer
+    The vCenter server address.
 
-## change write-server-name with new serve name
-$VmName = "testserver1"
+.PARAMETER VmName
+    The name of the new virtual machine.
 
-#Template name
-$Template = Get-Template -Name "Template2020"
+.PARAMETER TemplateName
+    The name of the template to use for deployment.
 
-##Select Cluster
-$Cluster = Get-Cluster -Name "clustername" | Get-VMHost | Get-Random
+.PARAMETER ClusterName
+    The name of the cluster where the VM will be deployed.
 
-#Select Folder exp: Eger bir klasor yapisi kullaniyorsaniz buradaki klasor id bilgisini ihtiyaciniz var.
-#Folder id sini referans almak istedginiz vm icin bu komut yazarsaniz size id numarasini dondurecektir. Get-VM vmname | select FolderId
+.PARAMETER DatastorePrefix
+    The prefix or name of the datastore where the VM will be stored.
+#>
+[CmdletBinding()]
+Param(
+    [Parameter(Mandatory=$true)]
+    [string]$VCenterServer,
 
-$FolderId = Get-Folder -Id "Folder-group-v48880"
+    [Parameter(Mandatory=$true)]
+    [string]$VmName,
 
-## Selects the drive with the highest free space
+    [Parameter(Mandatory=$true)]
+    [string]$TemplateName,
 
-## Burada datastore secimi yapacagiz ozellikle istediginiz bir datastore prefix varsa * karaktari ile kullanabilirsiniz. Ornek olarakWIN adi ile baslayan datastore yazarsaniz  tum datastoreleri listeler bunlarin icindeki free space en yuksek olani secer.
-$Datastore = Get-Datastore -Name datastorename* | sort FreeSpaceGB -Descending | select -First 1 -ExpandProperty Name
+    [Parameter(Mandatory=$true)]
+    [string]$ClusterName,
 
-# New Virtual machine details
-New-VM -Name $VmName -Template $Template -VMHost $Cluster -Location $FolderId -Datastore $Datastore -DiskStorageFormat Thin
+    [Parameter(Mandatory=$true)]
+    [string]$DatastorePrefix
+)
 
-Start-VM -VM $VmName
+# Import PowerCLI module if not already imported
+if (-not (Get-Module -Name VMware.PowerCLI -ErrorAction SilentlyContinue)) {
+    try {
+        Import-Module -Name VMware.PowerCLI -ErrorAction Stop
+    }
+    catch {
+        Write-Error "Failed to import VMware.PowerCLI module."
+        exit 1
+    }
+}
 
-Open-VMConsoleWindow -VM $VmName
+# Connect to vCenter
+try {
+    Write-Verbose "Connecting to vCenter Server: $VCenterServer"
+    $connection = Connect-VIServer -Server $VCenterServer -ErrorAction Stop
+}
+catch {
+    Write-Error "Failed to connect to vCenter Server $VCenterServer. Error: $_"
+    exit 1
+}
 
-Disconnect-VIServer -Server * -Force
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-20
-21
-22
-23
-24
-25
-26
-27
-28
-29
-30
-31
-32
-33
-Import-Module -Name VMware.PowerCLI
- 
-Connect-VIServer -Server vcenteripaddress
- 
-$localUser = $env:USERNAME
- 
-## change write-server-name with new serve name
-$VmName = "testserver1"
- 
-#Template name
-$Template = Get-Template -Name "Template2020"
- 
-##Select Cluster
-$Cluster = Get-Cluster -Name "clustername" | Get-VMHost | Get-Random
- 
-#Select Folder exp: Eger bir klasor yapisi kullaniyorsaniz buradaki klasor id bilgisini ihtiyaciniz var.
-#Folder id sini referans almak istedginiz vm icin bu komut yazarsaniz size id numarasini dondurecektir. Get-VM vmname | select FolderId
- 
-$FolderId = Get-Folder -Id "Folder-group-v48880"
- 
-## Selects the drive with the highest free space
- 
-## Burada datastore secimi yapacagiz ozellikle istediginiz bir datastore prefix varsa * karaktari ile kullanabilirsiniz. Ornek olarakWIN adi ile baslayan datastore yazarsaniz  tum datastoreleri listeler bunlarin icindeki free space en yuksek olani secer.
-$Datastore = Get-Datastore -Name datastorename* | sort FreeSpaceGB -Descending | select -First 1 -ExpandProperty Name
- 
-# New Virtual machine details
-New-VM -Name $VmName -Template $Template -VMHost $Cluster -Location $FolderId -Datastore $Datastore -DiskStorageFormat Thin
- 
-Start-VM -VM $VmName
- 
-Open-VMConsoleWindow -VM $VmName
- 
-Disconnect-VIServer -Server * -Force
+try {
+    # Get Template
+    $template = Get-Template -Name $TemplateName -ErrorAction Stop
+
+    # Select Cluster and a Random Host
+    $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
+    $vmHost = $cluster | Get-VMHost | Get-Random
+
+    # Select Datastore with highest free space matching the prefix
+    $datastore = Get-Datastore -Name "$DatastorePrefix*" | Sort-Object FreeSpaceGB -Descending | Select-Object -First 1
+
+    if (-not $datastore) {
+        Write-Error "No datastore found matching prefix '$DatastorePrefix'."
+        return
+    }
+
+    Write-Output "Deploying VM '$VmName' from template '$TemplateName' to host '$($vmHost.Name)' on datastore '$($datastore.Name)'..."
+
+    # New Virtual machine details
+    New-VM -Name $VmName -Template $template -VMHost $vmHost -Datastore $datastore -DiskStorageFormat Thin -Confirm:$false
+
+    Start-VM -VM $VmName -Confirm:$false
+
+    # Open-VMConsoleWindow -VM $VmName
+}
+finally {
+    if ($connection) {
+        Write-Verbose "Disconnecting..."
+        Disconnect-VIServer -Server $connection -Confirm:$false -Force
+    }
+}
