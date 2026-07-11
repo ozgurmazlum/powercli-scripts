@@ -1,67 +1,93 @@
-﻿# Powershell Gallery PowerCLI modullerini yukluyoyuruz
-Import-Module VMware.PowerCLI
+# Powershell Gallery PowerCLI modullerini yukluyoyuruz
+[CmdletBinding()]
+Param(
+    [Parameter(Mandatory=$true)]
+    [string]$VCenterServer
+)
 
-Connect-VIServer -Server 
+if (-not (Get-Module -Name VMware.PowerCLI -ErrorAction SilentlyContinue)) {
+    try {
+        Import-Module -Name VMware.PowerCLI -ErrorAction Stop
+    }
+    catch {
+        Write-Error "Failed to import VMware.PowerCLI module."
+        exit 1
+    }
+}
+
+# Connect to vCenter
+try {
+    $viServer = Connect-VIServer -Server $VCenterServer -ErrorAction Stop
+}
+catch {
+    Write-Error "Failed to connect to vCenter Server $VCenterServer. Error: $_"
+    exit 1
+}
 
 clear
-
-$servers = Get-VMHost
 
 Write-Host "Sunucu Bilgileri Alınıyor" -BackgroundColor Red 
 
 Write-Host " - - - SSD vFlash Cache Tanımlı Hostlar - - - " -ForegroundColor White
-$totalhost = 0
-foreach($server in $servers){
 
-$size = ($server | Get-View).config.VFlashConfigInfo.VFlashResourceConfigInfo.Capacity
-$size = $size / 1GB
+# Hostları ve vFlash konfigürasyonlarını bir kerede çekiyoruz (N+1 Query optimizasyonu)
+$hostViews = Get-View -ViewType HostSystem -Property Name, Config.VFlashConfigInfo
+$totalhost = 0
+$hostTable = @{} # VM'lerin host adlarını hızlıca bulabilmek için
+
+foreach($hostView in $hostViews){
+    $hostTable[$hostView.MoRef.Value] = $hostView.Name
+
+    $size = 0
+    if ($hostView.Config.VFlashConfigInfo -and $hostView.Config.VFlashConfigInfo.VFlashResourceConfigInfo) {
+        $size = $hostView.Config.VFlashConfigInfo.VFlashResourceConfigInfo.Capacity / 1GB
+    }
 
     if($size -gt 0){
-    $totalhost++
-
-    $server.Name + " Cache Size : " + $size + " GB"
-    #$server.Name + " Flash Cache Var"
-    #$size
-    
+        $totalhost++
+        Write-Output ($hostView.Name + " Cache Size : " + $size + " GB")
     }
 }
 
-Write-Host "Toplam $($servers.Count) Sunucudan $($totalhost) tanesinde SSD Cache Tanımlı" -BackgroundColor DarkYellow
+Write-Host "Toplam $($hostViews.Count) Sunucudan $($totalhost) tanesinde SSD Cache Tanımlı" -BackgroundColor DarkYellow
 
 $("`r`n ")
 $("`r`n ")
 
 Write-Host "SSD vFlash Cache Tanımlı Sanal Sunucular" -ForegroundColor Green
 
-$vms = Get-VM
+# VM'leri ve disk konfigürasyonlarını bir kerede çekiyoruz (N+1 Query optimizasyonu)
+$vmViews = Get-View -ViewType VirtualMachine -Property Name, Runtime.Host, Config.Hardware.Device
 $totalvm = 0
 
-foreach($vm in $vms){
+foreach($vmView in $vmViews){
+    $disks = $vmView.Config.Hardware.Device | Where-Object { $_ -is [VMware.Vim.VirtualDisk] }
 
-$disks = $vm | Get-HardDisk
-
-$cache = $disks.ExtensionData.vFlashCacheConfigInfo.ReservationInMB
-
-        if($cache -gt 0){
-
-            $totalvm ++
-
-            Write-host $vm.name  $vm.VMHost.Name -ForegroundColor Cyan
-
-                foreach($disk in $disks){
-
-                    $cacheSize = $disk.ExtensionData.vFlashCacheConfigInfo.ReservationInMB
-
-                    if($cacheSize -gt 0){
-
-                        $disk.Name + " Cache Size : " + $cacheSize
-                    }
-                }
+    # Herhangi bir diskte vFlash cache tanımlı mı kontrol ediyoruz
+    $hasCache = $false
+    $vFlashDisks = @()
+    foreach($disk in $disks) {
+        if ($disk.VFlashCacheConfigInfo -and $disk.VFlashCacheConfigInfo.ReservationInMB -gt 0) {
+            $hasCache = $true
+            $vFlashDisks += $disk
         }
+    }
+
+    if($hasCache){
+        $totalvm ++
+        $hostName = $hostTable[$vmView.Runtime.Host.Value]
+        Write-host $vmView.Name $hostName -ForegroundColor Cyan
+
+        foreach($disk in $vFlashDisks){
+             Write-Output ($disk.DeviceInfo.Label + " Cache Size : " + $disk.VFlashCacheConfigInfo.ReservationInMB)
+        }
+    }
 }
 
 
-Write-Host "Toplam $($vms.Count) sanal sunucudan $($totalvm) tanesi üzerinde SSD Cache Tanımlı" -BackgroundColor DarkYellow
+Write-Host "Toplam $($vmViews.Count) sanal sunucudan $($totalvm) tanesi üzerinde SSD Cache Tanımlı" -BackgroundColor DarkYellow
 
 
-Disconnect-VIServer * -Confirm:$false
+if ($viServer) {
+    Disconnect-VIServer -Server $viServer -Confirm:$false
+}
