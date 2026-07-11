@@ -1,27 +1,63 @@
-﻿# Powershell Gallery PowerCLI modullerini yukluyoruz
-Import-Module VMware.PowerCLI
+<#
+.SYNOPSIS
+    Finds PortGroups by VLAN ID and lists associated VMs.
 
-#userName değişkeni içerisine login olan kullanıcı adımızı alıyoruz
-$userName = $env:UserName
+.DESCRIPTION
+    Connects to vCenter, finds the Distributed Switch PortGroup with the specified VLAN ID,
+    and lists the VMs connected to it.
 
+.PARAMETER VCenterServer
+    The vCenter server address.
 
-$vcenterIP = Read-Host "Vcenter IP Adresiniz"
+.PARAMETER VlanId
+    The VLAN ID to search for.
+#>
+[CmdletBinding()]
+Param(
+    [Parameter(Mandatory=$true)]
+    [string]$VCenterServer,
 
+    [Parameter(Mandatory=$true)]
+    [int]$VlanId
+)
 
-# VCenter sunucuya erisim sagliyoruz
-Connect-VIServer -Server $vcenterIP
+# Import PowerCLI module if not already imported
+if (-not (Get-Module -Name VMware.PowerCLI -ErrorAction SilentlyContinue)) {
+    try {
+        Import-Module -Name VMware.PowerCLI -ErrorAction Stop
+    }
+    catch {
+        Write-Error "Failed to import VMware.PowerCLI module."
+        exit 1
+    }
+}
 
-clear
+# Connect to vCenter
+try {
+    Write-Verbose "Connecting to vCenter Server: $VCenterServer"
+    $connection = Connect-VIServer -Server $VCenterServer -ErrorAction Stop
+}
+catch {
+    Write-Error "Failed to connect to vCenter Server $VCenterServer. Error: $_"
+    exit 1
+}
 
-$vlanID = Read-Host -Prompt "Vland ID Giriniz"
+try {
+    $Switch = Get-VDSwitch | Get-VirtualPortGroup | Select-Object *, @{N="VlanIdFound";E={$_.ExtensionData.Config.DefaultPortConfig.Vlan.VlanId}} | Where-Object { $_.VlanIdFound -eq $VlanId }
 
-
-$Switch = Get-VDSwitch | Get-VirtualPortGroup | Select *, @{N="vlanID";E={$_.Extensiondata.Config.DefaultPortCOnfig.Vlan.VlanId}} | Where VLANId -EQ $vlanID
-
-Write-Host -ForegroundColor Green "Virual Switch Name :" + $Switch.Name
-
-Write-Host -ForegroundColor Yellow $Switch.Name + ": Virtual switch üzerinde çalışan sanal sunucular"
-Get-VirtualPortGroup -Name $Switch.Name | Get-VM | Select Name | Format-Table
-
-
-Disconnect-VIServer -Server * -Force -Confirm:$false
+    if ($Switch) {
+        foreach ($pg in $Switch) {
+            Write-Host -ForegroundColor Green "Virtual Switch PortGroup Name: $($pg.Name)"
+            Write-Host -ForegroundColor Yellow "$($pg.Name): Virtual switch üzerinde çalışan sanal sunucular"
+            Get-VirtualPortGroup -Name $pg.Name | Get-VM | Select-Object Name | Format-Table
+        }
+    } else {
+        Write-Warning "No PortGroup found with VLAN ID $VlanId"
+    }
+}
+finally {
+    if ($connection) {
+        Write-Verbose "Disconnecting from vCenter Server..."
+        Disconnect-VIServer -Server $connection -Confirm:$false
+    }
+}

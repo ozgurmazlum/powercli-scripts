@@ -1,45 +1,64 @@
-Import-Module -name VMware.PowerCLI -ErrorAction Stop
+<#
+.SYNOPSIS
+    Configures NTP on ESXi hosts.
 
+.DESCRIPTION
+    Connects to vCenter, ensures NTP service is configured correctly on all hosts.
 
-Connect-VIServer -server "vcenter.yerelag.local"-username "administrator@vsphere.local" -password "Vmware01!!"
+.PARAMETER VCenterServer
+    The vCenter server address.
+#>
+[CmdletBinding()]
+Param(
+    [Parameter(Mandatory=$true)]
+    [string]$VCenterServer
+)
 
-Get-VMHost | Get-VmHostService | Where-Object {$_.key-eq "ntpd"}
-
-#Get-VMHost | Sort-Object Name | Select-Object Name, @{N=”Cluster”;E={$_ | Get-Cluster}}, @{N=”Datacenter”;E={$_ | Get-Datacenter}}, @{N=“NTPServiceRunning“;E={($_ | Get-VmHostService | Where-Object {$_.key-eq “ntpd“}).Running}}, @{N=“StartupPolicy“;E={($_ | Get-VmHostService | Where-Object {$_.key-eq “ntpd“}).Policy}}, @{N=“NTPServers“;E={$_ | Get-VMHostNtpServer}}, @{N="Date&Time";E={(get-view $_.ExtensionData.configManager.DateTimeSystem).QueryDateTime()}} | format-table -autosize
-
-
-
-$currentNtp = "tr.pool.ntp.org"
-
-$xVmHosts = Get-VMHost | Sort-Object Name
-
-foreach ($xVmHost in $xVmHosts) {
-
-    $xNtpServers = $xVmHost | Get-VMHostNtpServer
-
-    if ($xNtpServers.Count -eq 0) {
-
-        $xVmHost | Add-VMHostNtpServer -NtpServer $currentNtp
-
-    } else {
-
-        $xNtpServers | ForEach-Object {
-
-            if ($_.NtpServer -eq $currentNtp) {
-
-                $_.Remove() 
-
-            }
-
-        }
-
-        $xVmHost | Add-VMHostNtpServer -NtpServer $currentNtp
-
+# Import PowerCLI module if not already imported
+if (-not (Get-Module -Name VMware.PowerCLI -ErrorAction SilentlyContinue)) {
+    try {
+        Import-Module -Name VMware.PowerCLI -ErrorAction Stop
     }
-
-
+    catch {
+        Write-Error "Failed to import VMware.PowerCLI module."
+        exit 1
+    }
 }
 
+# Connect to vCenter
+try {
+    Write-Verbose "Connecting to vCenter Server: $VCenterServer"
+    $connection = Connect-VIServer -Server $VCenterServer -ErrorAction Stop
+}
+catch {
+    Write-Error "Failed to connect to vCenter Server $VCenterServer. Error: $_"
+    exit 1
+}
 
+try {
+    Get-VMHost | Get-VmHostService | Where-Object {$_.key -eq "ntpd"}
 
-Disconnect-VIServer -Server * -Confirm:$false
+    $currentNtp = "tr.pool.ntp.org"
+    $xVmHosts = Get-VMHost | Sort-Object Name
+
+    foreach ($xVmHost in $xVmHosts) {
+        $xNtpServers = $xVmHost | Get-VMHostNtpServer
+
+        if ($xNtpServers.Count -eq 0) {
+            $xVmHost | Add-VMHostNtpServer -NtpServer $currentNtp
+        } else {
+            $xNtpServers | ForEach-Object {
+                if ($_.NtpServer -eq $currentNtp) {
+                    $_.Remove()
+                }
+            }
+            $xVmHost | Add-VMHostNtpServer -NtpServer $currentNtp
+        }
+    }
+}
+finally {
+    if ($connection) {
+        Write-Verbose "Disconnecting from vCenter Server..."
+        Disconnect-VIServer -Server $connection -Confirm:$false
+    }
+}
