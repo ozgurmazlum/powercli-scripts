@@ -1,9 +1,17 @@
-﻿# Powershell Gallery PowerCLI modullerini yukluyoyuruz
-Import-Module VMware.PowerCLI
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$VCenterServer
+)
 
-Connect-VIServer -Server 
+# Powershell Gallery PowerCLI modullerini yukluyoyuruz
+if (!(Get-Module -Name VMware.PowerCLI -ErrorAction SilentlyContinue)) {
+    Import-Module VMware.PowerCLI
+}
 
-clear
+Connect-VIServer -Server $VCenterServer
+
+# clear
 
 $servers = Get-VMHost
 
